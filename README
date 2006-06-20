@@ -1,0 +1,49 @@
+winny_scanner version 0.0.1
+
+Perl Winny Scanner inspired by
+   L<http://itpro.nikkeibp.co.jp/article/Watcher/20060411/235051/>
+
+This is a Winny scanner written in Perl. This just does detect if the specified
+host:port is winny or not and shows result.
+Do not do anything more, anything less.
+
+Winny is a very popular P2P software in Japan.
+
+Do not scan the network if you are not the administrator of it.
+
+INSTALLATION
+
+To install this module, run the following commands:
+
+    perl Makefile.PL
+    make
+    make test
+    make install
+
+
+Alternatively, to install with Module::Build, you can use the following commands:
+
+    perl Build.PL
+    ./Build
+    ./Build test
+    ./Build install
+
+
+
+DEPENDENCIES
+
+This module requires these other modules and libraries:
+
+Crypt::RC4
+
+Building and testing requires:
+
+Test::More
+
+
+COPYRIGHT AND LICENCE
+
+Copyright (C) 2006, Masanori Hara
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.

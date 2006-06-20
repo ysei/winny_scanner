@@ -1,0 +1,9 @@
+Build.PL
+Changes
+MANIFEST
+Makefile.PL
+README
+script/winny_scanner
+t/pod-coverage.t
+t/pod.t
+META.yml                                 Module meta-data (added by MakeMaker)

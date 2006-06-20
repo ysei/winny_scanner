@@ -1,0 +1,236 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Crypt::RC4;
+use Getopt::Long;
+use IO::Select;
+use IO::Socket::INET;
+use Term::ANSIColor qw(:constants);
+$Term::ANSIColor::AUTORESET = 1;
+
+our $VERSION = '0.01';
+my %ALL_SOCKETS;
+my @DETECTED;
+my $CONNECT_RETRY = 3;
+my $WINNY_STRING  = "\x01\x00\x00\x00\x61";
+
+######################################################################
+# GetOptions
+
+my $result = GetOptions(
+    "host=s"  => \my $host,
+    "port=s"  => \my $port,
+    "debug=s" => \my $debug,
+    "help"    => \my $help,
+);
+
+usage() if $help;
+unless ( defined $host and defined $port ) {
+    usage();
+}
+
+# trivial parse
+my @host_list = split /\s?,\s?/, $host;
+my @port_list = eval $port;
+die "illegal port : $port : $!\n", if $@;
+
+######################################################################
+# Main
+
+my $process_count = 0;
+my $interval      = 100;
+
+for my $host (@host_list) {
+    my $select = IO::Select->new;
+
+    for my $port (@port_list) {
+        my $sock = IO::Socket::INET->new(
+            PeerAddr => $host,
+            PeerPort => $port,
+            Proto    => 'tcp',
+            Blocking => 0,
+        );
+        next unless defined $sock;
+
+        $select->add($sock);
+        $ALL_SOCKETS{$sock} = { host => $host, port => $port };
+
+        $process_count++;
+        if ( 0 == $process_count % $interval ) {
+            my $new_select = read_sockets($select);
+            $select = $new_select;
+        }
+    }
+    read_sockets($select);
+}
+
+connect_detected_services();
+
+######################################################################
+# Sub Routines
+
+sub usage {
+    print STDERR "Usage: winny_scanner.pl ";
+    print STDERR "--host='192.168.1.1,192.168.1.2' ";
+    die "--port='10000..10500'\n";
+}
+
+sub read_sockets {
+    my $select = shift;
+
+    while ( my @ready = $select->can_read(1) ) {
+        for my $fh (@ready) {
+            my( $host, $port ) = get_hostinfo($fh);
+            my $msg = $fh->getline;
+            $fh->close;
+            $select->remove($fh);
+            push @DETECTED, { host => $host, port => $port } if $msg;
+        }
+    }
+    %ALL_SOCKETS = ();
+    return IO::Select->new;
+}
+
+sub get_hostinfo {
+    my $fh = shift;
+
+    if ( exists $ALL_SOCKETS{$fh} ) {
+        return ( $ALL_SOCKETS{$fh}->{host}, $ALL_SOCKETS{$fh}->{port} );
+    }
+    return ( '', '' );
+}
+
+sub connect_detected_services {
+    for my $entry (@DETECTED) {
+        my $host = $entry->{host};
+        my $port = $entry->{port};
+
+        my $winny;
+        for ( 1 .. $CONNECT_RETRY ) {
+            my $msg = get_message( $host, $port );
+            $winny = is_winny($msg);
+            last if $winny;
+        }
+        printf "%-15s : %5s : %s\n", $host, $port, $winny;
+    }
+}
+
+sub get_message {
+    my $host = shift;
+    my $port = shift;
+
+    my $sock = IO::Socket::INET->new(
+        PeerAddr => $host,
+        PeerPort => $port,
+        Proto    => 'tcp',
+        Timeout  => 1,
+        )
+        or die "cannot connect socket : $host:$port : $!\n";
+
+    my $message = $sock->getline or die "cannot getline socket : $!\n";
+    $sock->close or die "cannot close socket : $!\n";
+
+    return $message;
+}
+
+sub is_winny {
+    my $msg = shift;
+
+    return 0 unless $msg;
+
+    my( $passphrase, $encrypted );
+    eval { ( $passphrase, $encrypted ) = unpack "x2a4a5", $msg; };
+    if ($@) {
+        warn "failed unpack : $msg : $@\n";
+        return 0;
+    }
+
+    my $snipped_ph = ( split /\x00/, $passphrase )[0];
+
+    if ($debug) {
+        print YELLOW;
+        printf "msg  : %s\n", unpack "H*", $msg;
+        printf "pass : %s\n", unpack "H*", $passphrase;
+        printf "enc  : %s\n", unpack "H*", $encrypted;
+        printf "snip : %s\n", unpack "H*", $snipped_ph;
+        print RESET "\n";
+    }
+
+    my $decrypted = RC4( $snipped_ph, $encrypted );
+    if ( $WINNY_STRING eq $decrypted ) {
+        return 1;
+    }
+    return 0;
+}
+
+__END__
+
+=head1 NAME
+
+winny_scanner - Perl Winny Scanner
+
+
+=head1 SYNOPSIS
+
+% ./winny_scanner.pl --host='192.168.1.1,192.168.1.2' --port='10000..10500'
+
+
+=head1 DESCRIPTION
+
+Perl Winny Scanner inspired by
+   L<http://itpro.nikkeibp.co.jp/article/Watcher/20060411/235051/>
+
+This is a Winny scanner written in Perl. This just does detect if the specified
+host:port is winny or not and shows result.
+Do not do anything more, anything less.
+
+Winny is a very popular P2P software in Japan.
+
+Do not scan the network if you are not the administrator of it.
+
+
+=head1 BUGS
+
+Please report any bugs or feature requests to
+C<bug-winny_scanner@rt.cpan.org>, or through the web interface at
+L<http://rt.cpan.org>.
+
+
+=head1 AUTHOR
+
+Masanori Hara  C<< <massa.hara at gmail.com> >>
+
+
+=head1 COPYRIGHT
+
+Copyright (c) 2006, Masanori Hara C<< <massa.hara at gmail.com> >>. All rights reserved.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself. See L<perlartistic>.
+
+
+=head1 DISCLAIMER OF WARRANTY
+
+BECAUSE THIS SOFTWARE IS LICENSED FREE OF CHARGE, THERE IS NO WARRANTY
+FOR THE SOFTWARE, TO THE EXTENT PERMITTED BY APPLICABLE LAW. EXCEPT WHEN
+OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES
+PROVIDE THE SOFTWARE "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER
+EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE
+ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE SOFTWARE IS WITH
+YOU. SHOULD THE SOFTWARE PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL
+NECESSARY SERVICING, REPAIR, OR CORRECTION.
+
+IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING
+WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY AND/OR
+REDISTRIBUTE THE SOFTWARE AS PERMITTED BY THE ABOVE LICENCE, BE
+LIABLE TO YOU FOR DAMAGES, INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL,
+OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE
+THE SOFTWARE (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR DATA BEING
+RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD PARTIES OR A
+FAILURE OF THE SOFTWARE TO OPERATE WITH ANY OTHER SOFTWARE), EVEN IF
+SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGES.
+
+=cut
